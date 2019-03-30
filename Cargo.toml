@@ -1,0 +1,26 @@
+[package]
+name = "dino_park_gate"
+version = "0.0.1"
+authors = ["Florian Merz <flomerz@gmail.com>"]
+edition = "2018"
+license = "MIT"
+repository = "https://github.com/fiji-flo/dino-park-gate"
+documentation = "https://docs.rs/crate/dino-park-gate"
+keywords = ["actix", "middleware", "authentication"]
+categories = []
+readme = "README.md"
+include = ["Cargo.toml", "src/**/*.rs", "README.md", "LICENSE"]
+
+[dependencies]
+condvar_store = { git = "https://github.com/fiji-flo/condvar_store", version = "0.0.2" }
+failure = "0.1.5"
+failure_derive = "0.1.5"
+biscuit = "0.1"
+url = "1.7.2"
+actix-web = "0.7"
+env_logger = "0.6"
+serde = "1.0.80"
+serde_json = "1.0.32"
+serde_derive = "1.0.80"
+chrono = "0.4"
+reqwest = "0.9.8"
