@@ -1,24 +1,26 @@
 use crate::check::TokenChecker;
 use crate::error::AuthError;
 use crate::remote_keys::RemoteKeys;
+use crate::remote_keys::RemoteKeysProvider;
 use biscuit::jwa;
 use biscuit::jwk::AlgorithmParameters;
 use biscuit::jws;
 use biscuit::Empty;
-use condvar_store::CondvarStore;
+use shared_expiry_get::RemoteStore;
 use failure::Error;
 use reqwest::get;
 use serde_json::Value;
 use url::Url;
+use futures::Future;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Provider {
     pub issuer: String,
     pub auth_url: Url,
     pub token_url: Url,
     pub user_info_url: Url,
     pub raw_configuration: Value,
-    pub remote_key_set: CondvarStore<RemoteKeys>,
+    pub remote_key_set: RemoteStore<RemoteKeys, RemoteKeysProvider>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -54,15 +56,16 @@ impl Provider {
             token_url: Url::parse(&p.token_endpoint)?,
             user_info_url: Url::parse(&p.userinfo_endpoint)?,
             raw_configuration: res,
-            remote_key_set: CondvarStore::new(RemoteKeys::new(&p.jwks_uri)?),
+            remote_key_set: RemoteStore::new(RemoteKeysProvider::new(&p.jwks_uri)?),
         })
     }
 }
 
 impl TokenChecker for Provider {
     fn verify_and_decode(&self, token: &str) -> Result<biscuit::ClaimsSet<Value>, Error> {
-        let remote = self.remote_key_set.get()?;
-        let remote = remote.read().map_err(|_| AuthError::RemoteLockError)?;
+        println!("verify and decode");
+        let remote = self.remote_key_set.get().wait()?;
+        println!("gotem");
         let jwk = remote.keys.get(0).ok_or_else(|| AuthError::NoRemoteKeys)?;
         let rsa = if let AlgorithmParameters::RSA(x) = &jwk.algorithm {
             x
