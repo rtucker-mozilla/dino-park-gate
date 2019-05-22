@@ -12,8 +12,7 @@ readme = "README.md"
 include = ["Cargo.toml", "src/**/*.rs", "README.md", "LICENSE"]
 
 [dependencies]
-#shared-expiry-get = "0.0.1"
-shared-expiry-get = { path = "../shared-expiry-get" }
+shared-expiry-get = "0.0.1"
 failure = "0.1.5"
 failure_derive = "0.1.5"
 biscuit = "0.2"
