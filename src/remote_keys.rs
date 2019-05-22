@@ -7,7 +7,7 @@ use failure::Error;
 use futures::future;
 use futures::Future;
 use futures::IntoFuture;
-use reqwest::Client;
+use reqwest::r#async::Client;
 use serde_json::Value;
 use shared_expiry_get::Expiry;
 use shared_expiry_get::Provider;
@@ -54,23 +54,17 @@ impl Expiry for RemoteKeys {
 
 fn get_keys(url: Url) -> Box<Future<Item = Vec<JWK<Empty>>, Error = Error> + Send> {
     info!("getting keys");
-        let res = Client::new()
-            .get(url)
-            .send()
-            .map_err(Error::from);
-            info!("{:#?}", res);
-            let json = res.unwrap().json().map_err(Into::into);
-            info!("{:#?}", json);
-
-/*
-            res.into_future().and_then(|mut r| {
-                info!("res");
-                r.json().map_err(Into::into)
-            })
-            */
+    let client = Client::new().get("http://128.0.0.1:8080/jwks.json");
+    info!("client");
+    let res = client.send().map_err(Error::from);
+    info!("got keys");
     Box::new(
-            json.into_future().and_then(|mut keys: Value| {
-                serde_json::from_value::<Vec<JWK<Empty>>>(keys["keys"].take()).map_err(Into::into)
-            }),
+        res.and_then(|mut r| {
+            info!("res");
+            r.json().map_err(Into::into)
+        })
+        .and_then(|mut keys: Value| {
+            serde_json::from_value::<Vec<JWK<Empty>>>(keys["keys"].take()).map_err(Into::into)
+        }),
     )
 }

@@ -16,8 +16,8 @@ extern crate serde_derive;
 
 pub mod check;
 pub mod error;
-pub mod simple;
 pub mod provider;
 pub mod remote_keys;
-pub mod settings;
 pub mod scope;
+pub mod settings;
+pub mod simple;
