@@ -1,12 +1,18 @@
 extern crate actix_web;
+extern crate biscuit;
 extern crate dino_park_gate;
 extern crate env_logger;
 extern crate failure;
+extern crate shared_expiry_get;
 #[macro_use]
 extern crate log;
-extern crate shared_expiry_get;
 
 use actix_web::{web, App, HttpRequest, HttpServer, Responder};
+use biscuit::ClaimPresenceOptions;
+use biscuit::Presence;
+use biscuit::StringOrUri;
+use biscuit::Validation;
+use biscuit::ValidationOptions;
 use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
 use failure::Error;
@@ -23,7 +29,14 @@ fn main() -> Result<(), Error> {
         let provider = Provider::from_issuer("https://auth.mozilla.auth0.com/").unwrap();
         let auth = SimpleAuth {
             checker: provider,
-            validation_options: Default::default(),
+            validation_options: ValidationOptions {
+                claim_presence_options: ClaimPresenceOptions {
+                    audience: Presence::Required,
+                    ..Default::default()
+                },
+                audience: Validation::Validate(StringOrUri::String("foo".into())),
+                ..Default::default()
+            },
         };
 
         App::new().wrap(auth).service(web::resource("/").to(root))

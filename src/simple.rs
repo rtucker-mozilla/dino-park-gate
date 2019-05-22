@@ -6,15 +6,14 @@ use actix_web::dev::ServiceRequest;
 use actix_web::dev::ServiceResponse;
 use actix_web::Error;
 use biscuit::ValidationOptions;
-use futures::future;
+
 use futures::future::ok;
-use futures::future::Either;
+
 use futures::future::Future;
 use futures::future::FutureResult;
 use futures::future::IntoFuture;
 use futures::Poll;
-use serde_json::Value;
-use std::borrow::BorrowMut;
+
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -28,26 +27,6 @@ pub struct SimpleAuthMiddleware<S, T: TokenChecker + 'static> {
     pub service: Arc<RefCell<S>>,
     pub checker: Arc<T>,
     pub validation_options: ValidationOptions,
-}
-
-impl<S, B: 'static, T: TokenChecker + 'static> SimpleAuthMiddleware<S, T>
-where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
-{
-    pub fn check(
-        mut service: Arc<RefCell<S>>,
-        checker: Arc<T>,
-        token: String,
-        req: ServiceRequest,
-    ) -> Box<Future<Item = ServiceResponse<B>, Error = Error> + 'static> {
-        let f: Box<Future<Item = _, Error = Error> + 'static> =
-            Box::new(checker.verify_and_decode(token).map_err(Into::into));
-        //        .and_then(|claim_set| T::check(&claim_set, self.validation_options.clone())).map_err(Into::into));
-        let b: Box<Future<Item = ServiceResponse<B>, Error = Error> + 'static> =
-            Box::new(f.then(move |_| (*service).borrow_mut().call(req)));
-
-        b
-    }
 }
 
 impl<S, B: 'static, T: TokenChecker + Clone + 'static> Transform<S> for SimpleAuth<T>
@@ -98,12 +77,19 @@ where
 
         if let Some(auth_header) = auth_header {
             if let Some(token) = get_token(auth_header) {
-                return Self::check(
-                    self.service.clone(),
-                    self.checker.clone(),
-                    token.to_owned(),
-                    req,
+                let svc = self.service.clone();
+                let validation_options = self.validation_options.clone();
+                let f: Box<Future<Item = _, Error = Error> + 'static> = Box::new(
+                    self.checker
+                        .verify_and_decode(token.to_owned())
+                        .map_err(Into::into)
+                        .and_then(|claim_set| T::check(claim_set, validation_options))
+                        .map_err(|_| ServiceError::Unauthorized.into()),
                 );
+                let b: Box<Future<Item = ServiceResponse<B>, Error = Error> + 'static> =
+                    Box::new(f.and_then(move |_| (*svc).borrow_mut().call(req)));
+
+                return b;
             }
         }
         Box::new(Err(ServiceError::Unauthorized.into()).into_future())

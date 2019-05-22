@@ -68,10 +68,9 @@ impl TokenChecker for Provider {
     type Future = Box<Future<Item = Self::Item, Error = Error> + 'static>;
     type CheckFuture = Box<Future<Item = (), Error = Error> + 'static>;
     fn verify_and_decode(&self, token: String) -> Self::Future {
-        println!("verify and decode");
+        debug!("verify and decode");
         let token = token.to_owned();
         Box::new(self.remote_key_set.get().and_then(move |remote| {
-            println!("gotem");
             let jwk = remote.keys.get(0).ok_or_else(|| AuthError::NoRemoteKeys)?;
             let rsa = if let AlgorithmParameters::RSA(x) = &jwk.algorithm {
                 x
@@ -80,20 +79,15 @@ impl TokenChecker for Provider {
             };
             let c: jws::Compact<biscuit::ClaimsSet<Value>, Empty> =
                 jws::Compact::new_encoded(&token);
-            let r = match c.decode(&rsa.jws_public_key_secret(), jwa::SignatureAlgorithm::RS256) {
+            match c.decode(&rsa.jws_public_key_secret(), jwa::SignatureAlgorithm::RS256) {
                 Ok(c) => Ok(c.unwrap_decoded().1),
                 Err(e) => Err(e.into()),
-            };
-            r
+            }
         }))
     }
     fn check(item: Self::Item, validation_options: ValidationOptions) -> Self::CheckFuture {
-        Box::new(
-            item.registered
-                .validate(validation_options)
-                .map_err(Into::into)
-                .into_future(),
-        )
+        let valid = item.registered.validate(validation_options);
+        Box::new(valid.map_err(Into::into).into_future())
     }
 }
 
