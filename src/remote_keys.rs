@@ -47,7 +47,7 @@ impl Provider<RemoteKeys> for RemoteKeysProvider {
 }
 impl Expiry for RemoteKeys {
     fn valid(&self) -> bool {
-        info!("valid?");
+        debug!("valid?");
         self.expiry > Utc::now()
     }
 }

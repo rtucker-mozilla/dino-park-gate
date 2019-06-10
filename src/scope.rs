@@ -24,16 +24,16 @@ pub struct ScopeAndUser {
 }
 
 #[derive(Clone)]
-pub struct TokenCheckerWithValidation {
+pub struct ScopeAndUserAuth {
     pub checker: Provider,
 }
 #[derive(Clone)]
-pub struct ScopeAndUserMiddleware<S> {
+pub struct ScopeAndUserAuthMiddleware<S> {
     pub service: Arc<RefCell<S>>,
     pub checker: Arc<Provider>,
 }
 
-impl<S, B: 'static> Transform<S> for TokenCheckerWithValidation
+impl<S, B: 'static> Transform<S> for ScopeAndUserAuth
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
@@ -42,18 +42,18 @@ where
     type Response = ServiceResponse<B>;
     type Error = Error;
     type InitError = ();
-    type Transform = ScopeAndUserMiddleware<S>;
+    type Transform = ScopeAndUserAuthMiddleware<S>;
     type Future = FutureResult<Self::Transform, Self::InitError>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ok(ScopeAndUserMiddleware {
+        ok(ScopeAndUserAuthMiddleware {
             service: Arc::new(RefCell::new(service)),
             checker: Arc::new(self.checker.clone()),
         })
     }
 }
 
-impl<S, B> Service for ScopeAndUserMiddleware<S>
+impl<S, B> Service for ScopeAndUserAuthMiddleware<S>
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
@@ -113,14 +113,15 @@ fn scope_from_claimset(claims_set: ClaimsSet<Value>) -> Option<String> {
         .as_str()
         .map(|groups| groups.split(',').collect::<Vec<&str>>())
     {
-        if groups.contains(&"team_moco") || groups.contains(&"team_moco") {
-            info!("scope → staff");
-            return Some(String::from("staff"));
-        }
-        if groups.contains(&"mozilliansorg_nda") {
-            return Some(String::from("ndaed"));
-        }
-        return Some(String::from("authenticated"));
+        let scope = if groups.contains(&"team_moco") || groups.contains(&"team_moco") {
+            String::from("staff")
+        } else if groups.contains(&"mozilliansorg_nda") {
+            String::from("ndaed")
+        } else {
+            String::from("authenticated")
+        };
+        debug!("scope → {}", &scope);
+        return Some(scope);
     }
     None
 }
