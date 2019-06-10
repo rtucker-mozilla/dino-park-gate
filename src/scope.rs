@@ -3,9 +3,12 @@ use crate::error::ServiceError;
 use crate::provider::Provider;
 use actix_service::Service;
 use actix_service::Transform;
+use actix_web::dev::Payload;
 use actix_web::dev::ServiceRequest;
 use actix_web::dev::ServiceResponse;
 use actix_web::Error;
+use actix_web::FromRequest;
+use actix_web::HttpRequest;
 use biscuit::ClaimsSet;
 use biscuit::ValidationOptions;
 use futures::future::ok;
@@ -18,6 +21,7 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct ScopeAndUser {
     pub user_id: String,
     pub scope: String,
@@ -124,4 +128,19 @@ fn scope_from_claimset(claims_set: ClaimsSet<Value>) -> Option<String> {
         return Some(scope);
     }
     None
+}
+
+impl FromRequest for ScopeAndUser {
+    type Config = ();
+    type Error = Error;
+    type Future = Result<Self, Error>;
+
+    #[inline]
+    fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
+        if let Some(scope_and_user) = req.extensions().get::<ScopeAndUser>() {
+            Ok(scope_and_user.clone())
+        } else {
+            Err(ServiceError::Unauthorized.into())
+        }
+    }
 }
