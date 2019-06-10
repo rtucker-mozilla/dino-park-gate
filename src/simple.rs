@@ -79,17 +79,14 @@ where
             if let Some(token) = get_token(auth_header) {
                 let svc = self.service.clone();
                 let validation_options = self.validation_options.clone();
-                let f: Box<Future<Item = _, Error = Error> + 'static> = Box::new(
+                return Box::new(
                     self.checker
                         .verify_and_decode(token.to_owned())
                         .map_err(Into::into)
-                        .and_then(|claim_set| T::check(claim_set, validation_options))
-                        .map_err(|_| ServiceError::Unauthorized.into()),
+                        .and_then(|claim_set| T::check(&claim_set, validation_options))
+                        .map_err(|_| ServiceError::Unauthorized.into())
+                        .and_then(move |_| (*svc).borrow_mut().call(req)),
                 );
-                let b: Box<Future<Item = ServiceResponse<B>, Error = Error> + 'static> =
-                    Box::new(f.and_then(move |_| (*svc).borrow_mut().call(req)));
-
-                return b;
             }
         }
         Box::new(Err(ServiceError::Unauthorized.into()).into_future())

@@ -9,7 +9,6 @@ use biscuit::Empty;
 use biscuit::ValidationOptions;
 use failure::Error;
 use futures::Future;
-use futures::IntoFuture;
 use reqwest::get;
 use serde_json::Value;
 use shared_expiry_get::RemoteStore;
@@ -66,7 +65,6 @@ impl Provider {
 impl TokenChecker for Provider {
     type Item = biscuit::ClaimsSet<Value>;
     type Future = Box<Future<Item = Self::Item, Error = Error> + 'static>;
-    type CheckFuture = Box<Future<Item = (), Error = Error> + 'static>;
     fn verify_and_decode(&self, token: String) -> Self::Future {
         debug!("verify and decode");
         let token = token.to_owned();
@@ -85,9 +83,10 @@ impl TokenChecker for Provider {
             }
         }))
     }
-    fn check(item: Self::Item, validation_options: ValidationOptions) -> Self::CheckFuture {
-        let valid = item.registered.validate(validation_options);
-        Box::new(valid.map_err(Into::into).into_future())
+    fn check(item: &Self::Item, validation_options: ValidationOptions) -> Result<(), Error> {
+        item.registered
+            .validate(validation_options)
+            .map_err(Into::into)
     }
 }
 
@@ -119,8 +118,8 @@ mod test {
             private: Value::default(),
         };
         let validation_options = ValidationOptions::default();
-        let res = Provider::check(claim_set, validation_options);
-        assert!(res.wait().is_ok());
+        let res = Provider::check(&claim_set, validation_options);
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -137,7 +136,7 @@ mod test {
             private: Value::default(),
         };
         let validation_options = ValidationOptions::default();
-        let res = Provider::check(claim_set, validation_options);
-        assert!(res.wait().is_ok());
+        let res = Provider::check(&claim_set, validation_options);
+        assert!(res.is_ok());
     }
 }
