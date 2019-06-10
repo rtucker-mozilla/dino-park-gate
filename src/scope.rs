@@ -8,6 +8,7 @@ use actix_web::dev::ServiceRequest;
 use actix_web::dev::ServiceResponse;
 use actix_web::Error;
 use actix_web::FromRequest;
+use actix_web::HttpMessage;
 use actix_web::HttpRequest;
 use biscuit::ClaimsSet;
 use biscuit::ValidationOptions;
@@ -107,19 +108,24 @@ where
                         Some(scope) => Ok(ScopeAndUser { user_id, scope }),
                     }
                 })
-                .and_then(move |_| (*svc).borrow_mut().call(req)),
+                .and_then(move |scope| {
+                    req.extensions_mut().insert(scope);
+                    (*svc).borrow_mut().call(req)
+                }),
         )
     }
 }
 
-fn scope_from_claimset(claims_set: ClaimsSet<Value>) -> Option<String> {
-    if let Some(groups) = claims_set.private["https://sso.mozilla.com/claim/groups"]
-        .as_str()
-        .map(|groups| groups.split(',').collect::<Vec<&str>>())
-    {
-        let scope = if groups.contains(&"team_moco") || groups.contains(&"team_moco") {
+fn scope_from_claimset(mut claims_set: ClaimsSet<Value>) -> Option<String> {
+    // user_id in sub
+    if let Ok(groups) = serde_json::from_value::<Vec<String>>(
+        claims_set.private["https://sso.mozilla.com/claim/groups"].take(),
+    ) {
+        let scope = if groups.contains(&String::from("team_moco"))
+            || groups.contains(&String::from("team_moco"))
+        {
             String::from("staff")
-        } else if groups.contains(&"mozilliansorg_nda") {
+        } else if groups.contains(&String::from("mozilliansorg_nda")) {
             String::from("ndaed")
         } else {
             String::from("authenticated")
