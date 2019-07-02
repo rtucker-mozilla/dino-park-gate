@@ -123,6 +123,7 @@ fn scope_from_claimset(mut claims_set: ClaimsSet<Value>) -> Option<String> {
     ) {
         let scope = if groups.contains(&String::from("team_moco"))
             || groups.contains(&String::from("team_moco"))
+            || groups.contains(&String::from("hris_is_staff"))
         {
             String::from("staff")
         } else if groups.contains(&String::from("mozilliansorg_nda")) {
