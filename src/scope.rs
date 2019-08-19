@@ -122,7 +122,7 @@ fn scope_from_claimset(mut claims_set: ClaimsSet<Value>) -> Option<String> {
         claims_set.private["https://sso.mozilla.com/claim/groups"].take(),
     ) {
         let scope = if groups.contains(&String::from("team_moco"))
-            || groups.contains(&String::from("team_moco"))
+            || groups.contains(&String::from("team_mofo"))
             || groups.contains(&String::from("team_mozillaonline"))
             || groups.contains(&String::from("hris_is_staff"))
         {
