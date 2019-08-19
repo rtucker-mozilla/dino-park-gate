@@ -64,7 +64,7 @@ impl Provider {
 
 impl TokenChecker for Provider {
     type Item = biscuit::ClaimsSet<Value>;
-    type Future = Box<Future<Item = Self::Item, Error = Error> + 'static>;
+    type Future = Box<dyn Future<Item = Self::Item, Error = Error> + 'static>;
     fn verify_and_decode(&self, token: String) -> Self::Future {
         debug!("verify and decode");
         let token = token.to_owned();

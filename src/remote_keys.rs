@@ -31,7 +31,7 @@ impl RemoteKeysProvider {
 }
 
 impl Provider<RemoteKeys> for RemoteKeysProvider {
-    fn update(&self) -> Box<Future<Item = RemoteKeys, Error = Error> + Send> {
+    fn update(&self) -> Box<dyn Future<Item = RemoteKeys, Error = Error> + Send> {
         info!("updating: {}", self.jwk_url);
         let keys = get_keys(self.jwk_url.clone());
         Box::new(
@@ -52,7 +52,7 @@ impl Expiry for RemoteKeys {
     }
 }
 
-fn get_keys(url: Url) -> Box<Future<Item = Vec<JWK<Empty>>, Error = Error> + Send> {
+fn get_keys(url: Url) -> impl Future<Item = Vec<JWK<Empty>>, Error = Error> {
     let client = Client::new().get(url);
     let res = client.send().map_err(Error::from);
     Box::new(
