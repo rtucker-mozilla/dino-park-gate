@@ -1,4 +1,3 @@
-use crate::check::TokenChecker;
 use crate::error::ServiceError;
 use crate::provider::Provider;
 use actix_service::Service;
@@ -10,15 +9,11 @@ use actix_web::Error;
 use actix_web::FromRequest;
 use actix_web::HttpMessage;
 use actix_web::HttpRequest;
-use biscuit::ClaimsSet;
-use biscuit::ValidationOptions;
 use futures::future::ok;
 use futures::future::Future;
 use futures::future::FutureResult;
 use futures::future::IntoFuture;
 use futures::Poll;
-use serde_json::Value;
-
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -26,6 +21,7 @@ use std::sync::Arc;
 pub struct ScopeAndUser {
     pub user_id: String,
     pub scope: String,
+    pub groups_scope: Option<String>,
 }
 
 #[derive(Clone)]
@@ -73,7 +69,20 @@ where
         (*self.service).borrow_mut().poll_ready()
     }
 
+    #[cfg(feature = "localuserscope")]
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
+        let svc = self.service.clone();
+        Box::new(local_user_scope().into_future().and_then(move |scope| {
+            req.extensions_mut().insert(scope);
+            (*svc).borrow_mut().call(req)
+        }))
+    }
+
+    #[cfg(not(feature = "localuserscope"))]
+    fn call(&mut self, req: ServiceRequest) -> Self::Future {
+        use crate::check::TokenChecker;
+        use biscuit::ValidationOptions;
+
         let auth_token = match req
             .headers()
             .get("x-auth-token")
@@ -98,14 +107,22 @@ where
             self.checker
                 .verify_and_decode(auth_token)
                 .map_err(|_| ServiceError::Unauthorized.into())
-                .and_then(|claims_set| {
+                .and_then(|mut claims_set| {
                     if Provider::check(&claims_set, ValidationOptions::default()).is_err() {
                         return Err(ServiceError::Unauthorized.into());
                     }
-                    let scope = scope_from_claimset(claims_set);
+                    let groups = serde_json::from_value::<Vec<String>>(
+                        claims_set.private["https://sso.mozilla.com/claim/groups"].take(),
+                    )
+                    .ok();
+                    let scope = scope_from_claimset(&groups);
                     match scope {
                         None => Err(ServiceError::Unauthorized.into()),
-                        Some(scope) => Ok(ScopeAndUser { user_id, scope }),
+                        Some(scope) => Ok(ScopeAndUser {
+                            user_id,
+                            scope,
+                            groups_scope: groups_scope_from_claimset(&groups),
+                        }),
                     }
                 })
                 .and_then(move |scope| {
@@ -114,28 +131,6 @@ where
                 }),
         )
     }
-}
-
-fn scope_from_claimset(mut claims_set: ClaimsSet<Value>) -> Option<String> {
-    // user_id in sub
-    if let Ok(groups) = serde_json::from_value::<Vec<String>>(
-        claims_set.private["https://sso.mozilla.com/claim/groups"].take(),
-    ) {
-        let scope = if groups.contains(&String::from("team_moco"))
-            || groups.contains(&String::from("team_mofo"))
-            || groups.contains(&String::from("team_mozillaonline"))
-            || groups.contains(&String::from("hris_is_staff"))
-        {
-            String::from("staff")
-        } else if groups.contains(&String::from("mozilliansorg_nda")) {
-            String::from("ndaed")
-        } else {
-            String::from("authenticated")
-        };
-        debug!("scope → {}", &scope);
-        return Some(scope);
-    }
-    None
 }
 
 impl FromRequest for ScopeAndUser {
@@ -151,4 +146,63 @@ impl FromRequest for ScopeAndUser {
             Err(ServiceError::Unauthorized.into())
         }
     }
+}
+
+#[cfg(not(feature = "localuserscope"))]
+fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<String> {
+    if let Some(groups) = claims_set {
+        let scope = if groups.contains(&String::from("team_moco"))
+            || groups.contains(&String::from("team_mofo"))
+            || groups.contains(&String::from("team_mozillaonline"))
+            || groups.contains(&String::from("hris_is_staff"))
+        {
+            String::from("staff")
+        } else if groups.contains(&String::from("mozilliansorg_nda")) {
+            String::from("ndaed")
+        } else {
+            String::from("authenticated")
+        };
+        return Some(scope);
+    }
+    None
+}
+
+#[cfg(not(feature = "localuserscope"))]
+fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<String> {
+    if let Some(groups) = claims_set {
+        if groups.contains(&String::from("mozilliansorg_group_admins")) {
+            return Some(String::from("admin"));
+        }
+        if groups.contains(&String::from("mozilliansorg_group_creators")) {
+            return Some(String::from("creator"));
+        }
+    }
+    None
+}
+
+#[cfg(feature = "localuserscope")]
+fn local_user_scope() -> Result<ScopeAndUser, Error> {
+    use failure::format_err;
+    use log::info;
+    use std::env::var;
+
+    let DPG_USERSCOPE = "DPG_USERSCOPE";
+    let user_scope =
+        var(DPG_USERSCOPE).map_err(|_| format_err!("{} not defined", DPG_USERSCOPE))?;
+    info!("using {}: {}", DPG_USERSCOPE, user_scope);
+    let mut tuple = user_scope.split(',');
+    let user_id = tuple
+        .next()
+        .ok_or_else(|| format_err!("{}: no user_id", DPG_USERSCOPE))?
+        .to_owned();
+    let scope = tuple
+        .next()
+        .ok_or_else(|| format_err!("{}: no scope", DPG_USERSCOPE))?
+        .to_owned();
+    let groups_scope = tuple.next().map(|s| s.to_owned());
+    Ok(ScopeAndUser {
+        user_id,
+        scope,
+        groups_scope,
+    })
 }

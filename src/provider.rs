@@ -9,6 +9,7 @@ use biscuit::Empty;
 use biscuit::ValidationOptions;
 use failure::Error;
 use futures::Future;
+use log::debug;
 use reqwest::get;
 use serde_json::Value;
 use shared_expiry_get::RemoteStore;

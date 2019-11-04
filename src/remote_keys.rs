@@ -6,7 +6,8 @@ use chrono::Utc;
 use failure::Error;
 use futures::future;
 use futures::Future;
-
+use log::debug;
+use log::info;
 use reqwest::r#async::Client;
 use serde_json::Value;
 use shared_expiry_get::Expiry;
