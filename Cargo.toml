@@ -1,6 +1,6 @@
 [package]
 name = "dino_park_gate"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Florian Merz <flomerz@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -19,8 +19,8 @@ localuserscope = []
 shared-expiry-get = "0.0.1"
 failure = "0.1"
 failure_derive = "0.1"
-biscuit = "0.2"
-url = "1.7.2"
+biscuit = "0.4"
+url = "1.7"
 actix-web = "1.0"
 actix-service = "0.4"
 env_logger = "0.7"
