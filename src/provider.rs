@@ -8,7 +8,8 @@ use biscuit::jws;
 use biscuit::Empty;
 use biscuit::ValidationOptions;
 use failure::Error;
-use futures::Future;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use log::debug;
 use reqwest::get;
 use serde_json::Value;
@@ -41,10 +42,10 @@ pub struct Scopes {
 }
 
 impl Provider {
-    pub fn from_issuer(issuer: &str) -> Result<Self, Error> {
+    pub async fn from_issuer(issuer: &str) -> Result<Self, Error> {
         let well_known =
             Url::parse(issuer).and_then(|u| u.join(".well-known/openid-configuration"))?;
-        let res: Value = get(well_known)?.error_for_status()?.json()?;
+        let res: Value = get(well_known).await?.error_for_status()?.json().await?;
 
         let p: ProviderJson = serde_json::from_value(res.clone())?;
 
@@ -65,24 +66,29 @@ impl Provider {
 
 impl TokenChecker for Provider {
     type Item = biscuit::ClaimsSet<Value>;
-    type Future = Box<dyn Future<Item = Self::Item, Error = Error> + 'static>;
+    type Future = BoxFuture<'static, Result<Self::Item, Error>>;
     fn verify_and_decode(&self, token: String) -> Self::Future {
         debug!("verify and decode");
-        let token = token.to_owned();
-        Box::new(self.remote_key_set.get().and_then(move |remote| {
-            let jwk = remote.keys.get(0).ok_or_else(|| AuthError::NoRemoteKeys)?;
-            let rsa = if let AlgorithmParameters::RSA(x) = &jwk.algorithm {
-                x
-            } else {
-                return Err(AuthError::NoRsaJwk.into());
-            };
-            let c: jws::Compact<biscuit::ClaimsSet<Value>, Empty> =
-                jws::Compact::new_encoded(&token);
-            match c.decode(&rsa.jws_public_key_secret(), jwa::SignatureAlgorithm::RS256) {
-                Ok(c) => Ok(c.unwrap_decoded().1),
+        self.remote_key_set
+            .get()
+            .map(move |res| match res {
+                Ok(remote) => {
+                    let jwk = remote.keys.get(0).ok_or_else(|| AuthError::NoRemoteKeys)?;
+                    let rsa = if let AlgorithmParameters::RSA(x) = &jwk.algorithm {
+                        x
+                    } else {
+                        return Err(AuthError::NoRsaJwk.into());
+                    };
+                    let c: jws::Compact<biscuit::ClaimsSet<Value>, Empty> =
+                        jws::Compact::new_encoded(&token);
+                    match c.decode(&rsa.jws_public_key_secret(), jwa::SignatureAlgorithm::RS256) {
+                        Ok(c) => Ok(c.unwrap_decoded().1),
+                        Err(e) => Err(e.into()),
+                    }
+                }
                 Err(e) => Err(e.into()),
-            }
-        }))
+            })
+            .boxed()
     }
     fn check(item: &Self::Item, validation_options: ValidationOptions) -> Result<(), Error> {
         item.registered
@@ -99,19 +105,19 @@ mod test {
     use biscuit::SingleOrMultiple;
     use biscuit::StringOrUri;
     use serde_json::Value;
+    use tokio_test::block_on;
 
     #[test]
     fn test_from_issuer_mozilla() {
         let p = Provider::from_issuer("https://auth.mozilla.auth0.com/");
-        assert!(p.is_ok());
+        assert!(block_on(p).is_ok());
     }
 
     #[test]
     fn test_from_issuer_google() {
         let p = Provider::from_issuer("https://accounts.google.com/");
-        assert!(p.is_ok());
+        assert!(block_on(p).is_ok());
     }
-
     #[test]
     fn test_validate_empty_sets() {
         let claim_set = ClaimsSet {

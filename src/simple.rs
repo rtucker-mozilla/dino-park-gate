@@ -1,19 +1,17 @@
 use crate::check::TokenChecker;
 use crate::error::ServiceError;
+use crate::BoxFut;
 use actix_service::Service;
 use actix_service::Transform;
 use actix_web::dev::ServiceRequest;
 use actix_web::dev::ServiceResponse;
 use actix_web::Error;
 use biscuit::ValidationOptions;
-
-use futures::future::ok;
-
-use futures::future::Future;
-use futures::future::FutureResult;
-use futures::future::IntoFuture;
-use futures::Poll;
-
+use futures::future;
+use futures::future::Ready;
+use futures::task::Context;
+use futures::task::Poll;
+use futures::TryFutureExt;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -39,10 +37,10 @@ where
     type Error = Error;
     type InitError = ();
     type Transform = SimpleAuthMiddleware<S, T>;
-    type Future = FutureResult<Self::Transform, Self::InitError>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ok(SimpleAuthMiddleware {
+        future::ok(SimpleAuthMiddleware {
             service: Arc::new(RefCell::new(service)),
             checker: Arc::new(self.checker.clone()),
             validation_options: self.validation_options.clone(),
@@ -59,37 +57,37 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = BoxFut<Self::Response, Self::Error>;
 
-    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-        (*self.service).borrow_mut().poll_ready()
+    fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        (*self.service).borrow_mut().poll_ready(cx)
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         if req.method() == "OPTIONS" {
-            return Box::new((*self.service).borrow_mut().call(req));
+            return Box::pin(self.service.borrow_mut().call(req));
         }
 
         let auth_header = match req.headers().get("AUTHORIZATION") {
             Some(value) => value.to_str().ok(),
-            None => return Box::new(Err(ServiceError::Unauthorized.into()).into_future()),
+            None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
         };
 
         if let Some(auth_header) = auth_header {
             if let Some(token) = get_token(auth_header) {
                 let svc = self.service.clone();
                 let validation_options = self.validation_options.clone();
-                return Box::new(
-                    self.checker
-                        .verify_and_decode(token.to_owned())
-                        .map_err(Into::into)
-                        .and_then(|claim_set| T::check(&claim_set, validation_options))
-                        .map_err(|_| ServiceError::Unauthorized.into())
-                        .and_then(move |_| (*svc).borrow_mut().call(req)),
-                );
+                let fut = self.checker.verify_and_decode(token.to_owned());
+                return Box::pin(async move {
+                    let claim_set = fut.map_err(Error::from).await?;
+                    match T::check(&claim_set, validation_options) {
+                        Ok(_) => svc.borrow_mut().call(req).await,
+                        Err(_) => Err(ServiceError::Unauthorized.into()),
+                    }
+                });
             }
         }
-        Box::new(Err(ServiceError::Unauthorized.into()).into_future())
+        Box::pin(future::err(ServiceError::Unauthorized.into()))
     }
 }
 

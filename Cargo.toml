@@ -1,6 +1,6 @@
 [package]
 name = "dino_park_gate"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Florian Merz <flomerz@gmail.com>"]
 edition = "2018"
 license = "MIT"
@@ -16,19 +16,24 @@ default = []
 localuserscope = []
 
 [dependencies]
-shared-expiry-get = "0.0.1"
+#shared-expiry-get = "0.1.0"
+shared-expiry-get = { git = "https://github.com/fiji-flo/shared-expiry-get", version = "0.1.0", branch = "0.1.0" }
 failure = "0.1"
 failure_derive = "0.1"
 biscuit = "0.4"
-url = "1.7"
-actix-web = "1.0"
-actix-service = "0.4"
+url = "2.1"
+actix-web = "2.0"
+actix-service = "1.0"
 env_logger = "0.7"
 serde = "1.0.80"
 serde_json = "1.0.32"
 serde_derive = "1.0.80"
 chrono = "0.4"
-reqwest = "0.9"
+reqwest = { version = "0.10", features = ["json"] }
 bitflags = "1.0.4"
-futures = "0.1"
+futures = "0.3"
 log = "0.4"
+
+[dev-dependencies]
+tokio-test = "0.2"
+actix-rt = "1.0"

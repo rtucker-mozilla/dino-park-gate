@@ -1,9 +1,3 @@
-extern crate actix_web;
-extern crate biscuit;
-extern crate dino_park_gate;
-extern crate env_logger;
-extern crate failure;
-extern crate shared_expiry_get;
 #[macro_use]
 extern crate log;
 
@@ -15,20 +9,22 @@ use biscuit::Validation;
 use biscuit::ValidationOptions;
 use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
-use failure::Error;
 
-fn root(_: HttpRequest) -> impl Responder {
+async fn root(_: HttpRequest) -> impl Responder {
     "Authorized!"
 }
 
-fn main() -> Result<(), Error> {
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
     ::std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
     info!("starting");
-    HttpServer::new(|| {
-        let provider = Provider::from_issuer("https://auth.mozilla.auth0.com/").unwrap();
+    let provider = Provider::from_issuer("https://auth.mozilla.auth0.com/")
+        .await
+        .unwrap();
+    HttpServer::new(move || {
         let auth = SimpleAuth {
-            checker: provider,
+            checker: provider.clone(),
             validation_options: ValidationOptions {
                 claim_presence_options: ClaimPresenceOptions {
                     audience: Presence::Required,
@@ -38,12 +34,10 @@ fn main() -> Result<(), Error> {
                 ..Default::default()
             },
         };
-
         App::new().wrap(auth).service(web::resource("/").to(root))
     })
     .workers(1)
-    .bind("127.0.0.1:8000")
-    .unwrap()
+    .bind("127.0.0.1:8000")?
     .run()
-    .map_err(Into::into)
+    .await
 }

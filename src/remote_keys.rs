@@ -4,13 +4,15 @@ use chrono::DateTime;
 use chrono::Duration;
 use chrono::Utc;
 use failure::Error;
+use future::TryFutureExt;
 use futures::future;
-use futures::Future;
 use log::debug;
 use log::info;
-use reqwest::r#async::Client;
+use reqwest::Client;
 use serde_json::Value;
 use shared_expiry_get::Expiry;
+use shared_expiry_get::ExpiryFut;
+use shared_expiry_get::ExpiryGetError;
 use shared_expiry_get::Provider;
 use url::Url;
 
@@ -32,17 +34,15 @@ impl RemoteKeysProvider {
 }
 
 impl Provider<RemoteKeys> for RemoteKeysProvider {
-    fn update(&self) -> Box<dyn Future<Item = RemoteKeys, Error = Error> + Send> {
+    fn update(&self) -> ExpiryFut<RemoteKeys> {
         info!("updating: {}", self.jwk_url);
         let keys = get_keys(self.jwk_url.clone());
-        Box::new(
-            keys.and_then(|jwks| {
-                future::ok(RemoteKeys {
-                    keys: jwks,
-                    expiry: Utc::now() + Duration::days(1),
-                })
+        Box::pin(
+            keys.map_ok(|jwks| RemoteKeys {
+                keys: jwks,
+                expiry: Utc::now() + Duration::days(1),
             })
-            .map_err(Into::into),
+            .map_err(|e| ExpiryGetError::UpdateFailed(e.to_string())),
         )
     }
 }
@@ -53,13 +53,9 @@ impl Expiry for RemoteKeys {
     }
 }
 
-fn get_keys(url: Url) -> impl Future<Item = Vec<JWK<Empty>>, Error = Error> {
+async fn get_keys(url: Url) -> Result<Vec<JWK<Empty>>, Error> {
     let client = Client::new().get(url);
-    let res = client.send().map_err(Error::from);
-    Box::new(
-        res.and_then(|mut r| r.json().map_err(Into::into))
-            .and_then(|mut keys: Value| {
-                serde_json::from_value::<Vec<JWK<Empty>>>(keys["keys"].take()).map_err(Into::into)
-            }),
-    )
+    let res = client.send().map_err(Error::from).await?;
+    let mut keys: Value = res.json().map_err(Error::from).await?;
+    serde_json::from_value::<Vec<JWK<Empty>>>(keys["keys"].take()).map_err(Into::into)
 }
