@@ -1,5 +1,5 @@
 # DinoPark Gate (controlling Dinos since 2019)
-[![Build Status](https://travis-ci.org/fiji-flo/dino-park-gate.svg?branch=master)](https://travis-ci.org/fiji-flo/dino-park-gate)
+[![Build Status](https://travis-ci.org/mozilla-iam/dino-park-gate.svg?branch=master)](https://travis-ci.org/mozilla-iam/dino-park-gate)
 
 ## A basic authentication middleware for [actix-web](https://actix.rs/)
 
