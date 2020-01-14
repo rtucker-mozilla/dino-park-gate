@@ -97,13 +97,16 @@ fn get_token(auth_header: &str) -> Option<&str> {
         _ => None,
     }
 }
-/*
 #[cfg(test)]
 mod test {
     use super::*;
+    use actix_service::IntoService;
     use actix_web::test::TestRequest;
+    use actix_web::HttpResponse;
     use biscuit::ClaimsSet;
     use failure::Error;
+    use futures::future::ok;
+    use futures::future::BoxFuture;
     use serde_json::Value;
 
     #[derive(Default, Clone)]
@@ -113,18 +116,25 @@ mod test {
     }
 
     impl TokenChecker for FakeChecker {
-        fn verify_and_decode(&self, token: &str) -> Result<ClaimsSet<Value>, Error> {
+        type Item = biscuit::ClaimsSet<Value>;
+        type Future = BoxFuture<'static, Result<Self::Item, Error>>;
+        fn verify_and_decode(&self, token: String) -> Self::Future {
             if let Some(cs) = &self.claim_set {
                 if self
                     .token
                     .as_ref()
-                    .map(|t| t == token)
+                    .map(|t| t == &token)
                     .unwrap_or_else(|| true)
                 {
-                    return Ok(cs.clone());
+                    return Box::pin(future::ok(cs.clone()));
                 }
             };
-            return Err(ServiceError::Unauthorized.into());
+            Box::pin(future::err(ServiceError::Unauthorized.into()))
+        }
+        fn check(item: &Self::Item, validation_options: ValidationOptions) -> Result<(), Error> {
+            item.registered
+                .validate(validation_options)
+                .map_err(Into::into)
         }
     }
 
@@ -134,20 +144,26 @@ mod test {
         assert_eq!(get_token(token), Some("FOOBAR…"));
     }
 
-    #[test]
-    fn test_middleware_no_token() {
-        let auth_middleware = AuthMiddleware {
+    #[actix_rt::test]
+    async fn test_middleware_no_token() {
+        let srv = |req: ServiceRequest| ok(req.into_response(HttpResponse::Ok()));
+        let auth_middleware = SimpleAuth {
             checker: FakeChecker::default(),
             validation_options: ValidationOptions::default(),
         };
-        let req = TestRequest::with_header("SOMETHING", "ELSE").finish();
-        let res = auth_middleware.start(&req);
+        let mut srv = auth_middleware
+            .new_transform(srv.into_service())
+            .await
+            .unwrap();
+        let req = TestRequest::with_header("SOMETHING", "ELSE").to_srv_request();
+        let res = srv.call(req).await;
         assert!(res.is_err());
     }
 
-    #[test]
-    fn test_middleware_bearer_missing() {
-        let auth_middleware = AuthMiddleware {
+    #[actix_rt::test]
+    async fn test_middleware_bearer_missing() {
+        let srv = |req: ServiceRequest| ok(req.into_response(HttpResponse::Ok()));
+        let auth_middleware = SimpleAuth {
             checker: FakeChecker {
                 claim_set: Some(ClaimsSet {
                     registered: Default::default(),
@@ -157,14 +173,19 @@ mod test {
             },
             validation_options: ValidationOptions::default(),
         };
-        let req = TestRequest::with_header("AUTHORIZATION", "not bearer").finish();
-        let res = auth_middleware.start(&req);
+        let mut srv = auth_middleware
+            .new_transform(srv.into_service())
+            .await
+            .unwrap();
+        let req = TestRequest::with_header("AUTHORIZATION", "not bearer").to_srv_request();
+        let res = srv.call(req).await;
         assert!(res.is_err());
     }
 
-    #[test]
-    fn test_middleware_authorized() {
-        let auth_middleware = AuthMiddleware {
+    #[actix_rt::test]
+    async fn test_middleware_authorized() {
+        let srv = |req: ServiceRequest| ok(req.into_response(HttpResponse::Ok()));
+        let auth_middleware = SimpleAuth {
             checker: FakeChecker {
                 claim_set: Some(ClaimsSet {
                     registered: Default::default(),
@@ -174,9 +195,12 @@ mod test {
             },
             validation_options: ValidationOptions::default(),
         };
-        let req = TestRequest::with_header("AUTHORIZATION", "Bearer somethingfun").finish();
-        let res = auth_middleware.start(&req);
+        let mut srv = auth_middleware
+            .new_transform(srv.into_service())
+            .await
+            .unwrap();
+        let req = TestRequest::with_header("AUTHORIZATION", "Bearer somethingfun").to_srv_request();
+        let res = srv.call(req).await;
         assert!(res.is_ok());
     }
 }
-*/

@@ -16,8 +16,7 @@ default = []
 localuserscope = []
 
 [dependencies]
-#shared-expiry-get = "0.1.0"
-shared-expiry-get = { git = "https://github.com/fiji-flo/shared-expiry-get", version = "0.1.0", branch = "0.1.0" }
+shared-expiry-get = "0.1.0"
 failure = "0.1"
 failure_derive = "0.1"
 biscuit = "0.4"
