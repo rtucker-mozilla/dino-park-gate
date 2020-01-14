@@ -1,5 +1,6 @@
 use actix_web::HttpResponse;
 use actix_web::ResponseError;
+use failure::Fail;
 
 #[derive(Debug, Fail)]
 pub enum AuthError {

@@ -1,9 +1,3 @@
-# DinoPark Gate (controlling Dinos since 2019)
-[![Build Status](https://travis-ci.org/fiji-flo/dino-park-gate.svg?branch=master)](https://travis-ci.org/fiji-flo/dino-park-gate)
-
-## A basic authentication middleware for [actix-web](https://actix.rs/)
-
-```rust
 use actix_web::{web, App, HttpRequest, HttpServer, Responder};
 use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
@@ -29,4 +23,3 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-```

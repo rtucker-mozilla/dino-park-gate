@@ -1,10 +1,12 @@
-# DinoPark Gate (controlling Dinos since 2019)
-[![Build Status](https://travis-ci.org/fiji-flo/dino-park-gate.svg?branch=master)](https://travis-ci.org/fiji-flo/dino-park-gate)
+#[macro_use]
+extern crate log;
 
-## A basic authentication middleware for [actix-web](https://actix.rs/)
-
-```rust
 use actix_web::{web, App, HttpRequest, HttpServer, Responder};
+use biscuit::ClaimPresenceOptions;
+use biscuit::Presence;
+use biscuit::StringOrUri;
+use biscuit::Validation;
+use biscuit::ValidationOptions;
 use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
 
@@ -14,13 +16,23 @@ async fn root(_: HttpRequest) -> impl Responder {
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
+    ::std::env::set_var("RUST_LOG", "debug");
+    env_logger::init();
+    info!("starting");
     let provider = Provider::from_issuer("https://auth.mozilla.auth0.com/")
         .await
         .unwrap();
     HttpServer::new(move || {
         let auth = SimpleAuth {
             checker: provider.clone(),
-            validation_options: Default::default(),
+            validation_options: ValidationOptions {
+                claim_presence_options: ClaimPresenceOptions {
+                    audience: Presence::Required,
+                    ..Default::default()
+                },
+                audience: Validation::Validate(StringOrUri::String("foo".into())),
+                ..Default::default()
+            },
         };
         App::new().wrap(auth).service(web::resource("/").to(root))
     })
@@ -29,4 +41,3 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
-```
