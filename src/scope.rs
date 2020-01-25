@@ -74,7 +74,7 @@ where
     #[cfg(feature = "localuserscope")]
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         let svc = self.service.clone();
-        Box::new(local_user_scope().into_future().and_then(move |scope| {
+        Box::pin(async { local_user_scope() }.and_then(move |scope| {
             req.extensions_mut().insert(scope);
             (*svc).borrow_mut().call(req)
         }))
@@ -186,18 +186,18 @@ fn local_user_scope() -> Result<ScopeAndUser, Error> {
     use log::info;
     use std::env::var;
 
-    let DPG_USERSCOPE = "DPG_USERSCOPE";
+    let dpg_userscope = "DPG_USERSCOPE";
     let user_scope =
-        var(DPG_USERSCOPE).map_err(|_| format_err!("{} not defined", DPG_USERSCOPE))?;
-    info!("using {}: {}", DPG_USERSCOPE, user_scope);
+        var(dpg_userscope).map_err(|_| format_err!("{} not defined", dpg_userscope))?;
+    info!("using {}: {}", dpg_userscope, user_scope);
     let mut tuple = user_scope.split(',');
     let user_id = tuple
         .next()
-        .ok_or_else(|| format_err!("{}: no user_id", DPG_USERSCOPE))?
+        .ok_or_else(|| format_err!("{}: no user_id", dpg_userscope))?
         .to_owned();
     let scope = tuple
         .next()
-        .ok_or_else(|| format_err!("{}: no scope", DPG_USERSCOPE))?
+        .ok_or_else(|| format_err!("{}: no scope", dpg_userscope))?
         .to_owned();
     let groups_scope = tuple.next().map(|s| s.to_owned());
     Ok(ScopeAndUser {
