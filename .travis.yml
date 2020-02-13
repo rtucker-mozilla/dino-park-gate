@@ -15,5 +15,7 @@ before_script:
 script:
   - cargo fmt --all -- --check
   - cargo clippy -- -D warnings
+  - cargo clippy --features localuserscope -- -D warnings
   - cargo build --all
   - cargo test --all
+  - cargo test --all --features localuserscope

@@ -10,6 +10,8 @@ use actix_web::Error;
 use actix_web::FromRequest;
 use actix_web::HttpMessage;
 use actix_web::HttpRequest;
+use dino_park_trust::GroupsTrust;
+use dino_park_trust::Trust;
 use futures::future;
 use futures::future::ok;
 use futures::future::Ready;
@@ -22,8 +24,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ScopeAndUser {
     pub user_id: String,
-    pub scope: String,
-    pub groups_scope: Option<String>,
+    pub scope: Trust,
+    pub groups_scope: GroupsTrust,
 }
 
 #[derive(Clone)]
@@ -149,18 +151,20 @@ impl FromRequest for ScopeAndUser {
 }
 
 #[cfg(not(feature = "localuserscope"))]
-fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<String> {
+fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<Trust> {
     if let Some(groups) = claims_set {
         let scope = if groups.contains(&String::from("team_moco"))
             || groups.contains(&String::from("team_mofo"))
             || groups.contains(&String::from("team_mozillaonline"))
             || groups.contains(&String::from("hris_is_staff"))
         {
-            String::from("staff")
-        } else if groups.contains(&String::from("mozilliansorg_nda")) {
-            String::from("ndaed")
+            Trust::Staff
+        } else if groups.contains(&String::from("mozilliansorg_nda"))
+            || groups.contains(&String::from("mozilliansorg_contingentworkernda"))
+        {
+            Trust::Ndaed
         } else {
-            String::from("authenticated")
+            Trust::Authenticated
         };
         return Some(scope);
     }
@@ -168,22 +172,23 @@ fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<String> {
 }
 
 #[cfg(not(feature = "localuserscope"))]
-fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<String> {
+fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> GroupsTrust {
     if let Some(groups) = claims_set {
         if groups.contains(&String::from("mozilliansorg_group_admins")) {
-            return Some(String::from("admin"));
+            return GroupsTrust::Admin;
         }
         if groups.contains(&String::from("mozilliansorg_group_creators")) {
-            return Some(String::from("creator"));
+            return GroupsTrust::Creator;
         }
     }
-    None
+    GroupsTrust::None
 }
 
 #[cfg(feature = "localuserscope")]
 fn local_user_scope() -> Result<ScopeAndUser, Error> {
     use failure::format_err;
     use log::info;
+    use std::convert::TryFrom;
     use std::env::var;
 
     let dpg_userscope = "DPG_USERSCOPE";
@@ -197,9 +202,11 @@ fn local_user_scope() -> Result<ScopeAndUser, Error> {
         .to_owned();
     let scope = tuple
         .next()
-        .ok_or_else(|| format_err!("{}: no scope", dpg_userscope))?
-        .to_owned();
-    let groups_scope = tuple.next().map(|s| s.to_owned());
+        .ok_or_else(|| format_err!("{}: no scope", dpg_userscope))?;
+    let scope = Trust::try_from(scope).map_err(|e| format_err!("{}: invalid scope", e))?;
+    let groups_scope = tuple.next().unwrap_or_default();
+    let groups_scope = GroupsTrust::try_from(groups_scope)
+        .map_err(|e| format_err!("{}: invalid groups scope", e))?;
     Ok(ScopeAndUser {
         user_id,
         scope,
