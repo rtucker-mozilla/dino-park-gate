@@ -1,5 +1,4 @@
 use crate::error::ServiceError;
-use crate::provider::Provider;
 use crate::BoxFut;
 use actix_service::Service;
 use actix_service::Transform;
@@ -10,6 +9,7 @@ use actix_web::Error;
 use actix_web::FromRequest;
 use actix_web::HttpMessage;
 use actix_web::HttpRequest;
+use dino_park_oidc::provider::Provider;
 use dino_park_trust::GroupsTrust;
 use dino_park_trust::Trust;
 use futures::future;
@@ -107,7 +107,7 @@ where
         };
 
         let svc = self.service.clone();
-        let fut = self.checker.verify_and_decode(auth_token);
+        let fut = <Provider as TokenChecker>::verify_and_decode(&self.checker, auth_token);
         Box::pin(async move {
             let mut claims_set = fut
                 .map_err(|_| Error::from(ServiceError::Unauthorized))

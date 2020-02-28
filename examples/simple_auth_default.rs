@@ -1,6 +1,6 @@
 use actix_web::{web, App, HttpRequest, HttpServer, Responder};
-use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
+use dino_park_oidc::provider::Provider;
 
 async fn root(_: HttpRequest) -> impl Responder {
     "Authorized!"

@@ -7,8 +7,8 @@ use biscuit::Presence;
 use biscuit::StringOrUri;
 use biscuit::Validation;
 use biscuit::ValidationOptions;
-use dino_park_gate::provider::Provider;
 use dino_park_gate::simple::SimpleAuth;
+use dino_park_oidc::provider::Provider;
 
 async fn root(_: HttpRequest) -> impl Responder {
     "Authorized!"

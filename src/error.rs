@@ -3,18 +3,6 @@ use actix_web::ResponseError;
 use failure::Fail;
 
 #[derive(Debug, Fail)]
-pub enum AuthError {
-    #[fail(display = "unable to get read lock for remote keys")]
-    RemoteLockError,
-    #[fail(display = "no remote keys")]
-    NoRemoteKeys,
-    #[fail(display = "issuer mismatch")]
-    IssuerMismatch,
-    #[fail(display = "no rsa jwk")]
-    NoRsaJwk,
-}
-
-#[derive(Debug, Fail)]
 pub enum ServiceError {
     #[fail(display = "Unauthorized")]
     Unauthorized,
