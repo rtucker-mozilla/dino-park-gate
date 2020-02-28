@@ -4,6 +4,8 @@ extern crate serde_derive;
 use std::future::Future;
 use std::pin::Pin;
 
+pub use dino_park_oidc::provider;
+
 pub mod check;
 pub mod error;
 pub mod scope;
