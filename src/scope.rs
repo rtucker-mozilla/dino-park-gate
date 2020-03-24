@@ -28,14 +28,41 @@ pub struct ScopeAndUser {
     pub groups_scope: GroupsTrust,
 }
 
+impl ScopeAndUser {
+    pub fn public() -> Self {
+        ScopeAndUser {
+            user_id: Default::default(),
+            scope: Trust::Public,
+            groups_scope: GroupsTrust::None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ScopeAndUserAuth {
     pub checker: Provider,
+    pub public: bool,
 }
+
+impl ScopeAndUserAuth {
+    pub fn new(checker: Provider) -> Self {
+        ScopeAndUserAuth {
+            checker,
+            public: false,
+        }
+    }
+
+    pub fn public(mut self) -> Self {
+        self.public = true;
+        self
+    }
+}
+
 #[derive(Clone)]
 pub struct ScopeAndUserAuthMiddleware<S> {
     pub service: Arc<RefCell<S>>,
     pub checker: Arc<Provider>,
+    pub public: bool,
 }
 
 impl<S, B: 'static> Transform<S> for ScopeAndUserAuth
@@ -54,6 +81,7 @@ where
         ok(ScopeAndUserAuthMiddleware {
             service: Arc::new(RefCell::new(service)),
             checker: Arc::new(self.checker.clone()),
+            public: self.public,
         })
     }
 }
@@ -87,13 +115,21 @@ where
         use crate::check::TokenChecker;
         use biscuit::ValidationOptions;
 
-        let auth_token = match req
-            .headers()
-            .get("x-auth-token")
-            .and_then(|value| value.to_str().ok())
-        {
-            Some(auth_token) => auth_token.to_owned(),
-            None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
+        let svc = self.service.clone();
+        let auth_token = match (
+            req.headers()
+                .get("x-auth-token")
+                .and_then(|value| value.to_str().ok()),
+            self.public,
+        ) {
+            (Some(auth_token), _) => auth_token.to_owned(),
+            (None, false) => return Box::pin(future::err(ServiceError::Unauthorized.into())),
+            (None, true) => {
+                return Box::pin(async move {
+                    req.extensions_mut().insert(ScopeAndUser::public());
+                    svc.borrow_mut().call(req).await
+                })
+            }
         };
         let user_id = match req
             .headers()
@@ -106,7 +142,6 @@ where
             None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
         };
 
-        let svc = self.service.clone();
         let fut = <Provider as TokenChecker>::verify_and_decode(&self.checker, auth_token);
         Box::pin(async move {
             let mut claims_set = fut
