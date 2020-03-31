@@ -127,7 +127,8 @@ where
             (None, true) => {
                 return Box::pin(async move {
                     req.extensions_mut().insert(ScopeAndUser::public());
-                    svc.borrow_mut().call(req).await
+                    let fut = { svc.borrow_mut().call(req) };
+                    fut.await
                 })
             }
         };
@@ -165,7 +166,8 @@ where
                 },
             };
             req.extensions_mut().insert(scope_and_user);
-            svc.borrow_mut().call(req).await
+            let fut = { svc.borrow_mut().call(req) };
+            fut.await
         })
     }
 }

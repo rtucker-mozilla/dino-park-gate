@@ -65,7 +65,8 @@ where
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         if req.method() == "OPTIONS" {
-            return Box::pin(self.service.borrow_mut().call(req));
+            let fut = { self.service.borrow_mut().call(req) };
+            return Box::pin(fut);
         }
 
         let auth_header = match req.headers().get("AUTHORIZATION") {
@@ -81,7 +82,10 @@ where
                 return Box::pin(async move {
                     let claim_set = fut.map_err(Error::from).await?;
                     match T::check(&claim_set, validation_options) {
-                        Ok(_) => svc.borrow_mut().call(req).await,
+                        Ok(_) => {
+                            let fut = { svc.borrow_mut().call(req) };
+                            fut.await
+                        }
                         Err(_) => Err(ServiceError::Unauthorized.into()),
                     }
                 });
