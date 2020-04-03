@@ -113,6 +113,7 @@ where
     #[cfg(not(feature = "localuserscope"))]
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         use crate::check::TokenChecker;
+        use biscuit::StringOrUri;
         use biscuit::ValidationOptions;
 
         let svc = self.service.clone();
@@ -152,6 +153,14 @@ where
             if Provider::check(&claims_set, ValidationOptions::default()).is_err() {
                 return Err(ServiceError::Unauthorized.into());
             }
+
+            match claims_set.registered.subject {
+                Some(StringOrUri::String(ref sub)) if sub != &user_id => {
+                    return Err(ServiceError::Unauthorized.into())
+                }
+                _ => {}
+            }
+
             let groups = serde_json::from_value::<Vec<String>>(
                 claims_set.private["https://sso.mozilla.com/claim/groups"].take(),
             )
