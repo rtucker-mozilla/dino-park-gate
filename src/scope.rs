@@ -10,6 +10,7 @@ use actix_web::FromRequest;
 use actix_web::HttpMessage;
 use actix_web::HttpRequest;
 use dino_park_oidc::provider::Provider;
+use dino_park_trust::AALevel;
 use dino_park_trust::GroupsTrust;
 use dino_park_trust::Trust;
 use futures::future;
@@ -26,6 +27,7 @@ pub struct ScopeAndUser {
     pub user_id: String,
     pub scope: Trust,
     pub groups_scope: GroupsTrust,
+    pub aa_level: AALevel,
 }
 
 impl ScopeAndUser {
@@ -34,6 +36,7 @@ impl ScopeAndUser {
             user_id: Default::default(),
             scope: Trust::Public,
             groups_scope: GroupsTrust::None,
+            aa_level: AALevel::Unknown,
         }
     }
 }
@@ -166,12 +169,17 @@ where
             )
             .ok();
             let scope = scope_from_claimset(&groups);
+            let aa_level = serde_json::from_value::<AALevel>(
+                claims_set.private["https://sso.mozilla.com/claim/AAL"].take(),
+            )
+            .unwrap_or_else(|_| AALevel::Unknown);
             let scope_and_user = match scope {
                 None => return Err(ServiceError::Unauthorized.into()),
                 Some(scope) => ScopeAndUser {
                     user_id,
                     scope,
                     groups_scope: groups_scope_from_claimset(&groups),
+                    aa_level,
                 },
             };
             req.extensions_mut().insert(scope_and_user);
@@ -253,9 +261,31 @@ fn local_user_scope() -> Result<ScopeAndUser, Error> {
     let groups_scope = tuple.next().unwrap_or_default();
     let groups_scope = GroupsTrust::try_from(groups_scope)
         .map_err(|e| format_err!("{}: invalid groups scope", e))?;
+    let aa_level = match tuple.next() {
+        Some(s) => AALevel::from(s),
+        _ => AALevel::Unknown,
+    };
     Ok(ScopeAndUser {
         user_id,
         scope,
         groups_scope,
+        aa_level,
     })
+}
+
+#[cfg(all(test, feature = "localuserscope"))]
+mod test {
+    use super::*;
+    use std::env::set_var;
+
+    #[test]
+    fn test_local_user_scope() -> Result<(), Error> {
+        set_var("DPG_USERSCOPE", "user_id,staff,admin,HIGH");
+        let user_scope = local_user_scope()?;
+        assert_eq!(user_scope.user_id, "user_id");
+        assert_eq!(user_scope.scope, Trust::Staff);
+        assert_eq!(user_scope.groups_scope, GroupsTrust::Admin);
+        assert_eq!(user_scope.aa_level, AALevel::High);
+        Ok(())
+    }
 }
