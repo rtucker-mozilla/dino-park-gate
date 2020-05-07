@@ -146,11 +146,6 @@ where
             Some(user_id) => user_id,
             None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
         };
-        let use_super_powers = req
-            .headers()
-            .get("super_powers")
-            .map(|sp| sp == "please")
-            .unwrap_or_default();
 
         let fut = <Provider as TokenChecker>::verify_and_decode(&self.checker, auth_token);
         Box::pin(async move {
@@ -183,7 +178,7 @@ where
                 Some(scope) => ScopeAndUser {
                     user_id,
                     scope,
-                    groups_scope: groups_scope_from_claimset(&groups, use_super_powers),
+                    groups_scope: groups_scope_from_claimset(&groups),
                     aa_level,
                 },
             };
@@ -231,12 +226,9 @@ fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<Trust> {
 }
 
 #[cfg(not(feature = "localuserscope"))]
-fn groups_scope_from_claimset(
-    claims_set: &Option<Vec<String>>,
-    use_super_powers: bool,
-) -> GroupsTrust {
+fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> GroupsTrust {
     if let Some(groups) = claims_set {
-        if groups.contains(&String::from("mozilliansorg_group_admins")) && use_super_powers {
+        if groups.contains(&String::from("mozilliansorg_group_admins")) {
             return GroupsTrust::Admin;
         }
         if groups.contains(&String::from("mozilliansorg_group_creators")) {
