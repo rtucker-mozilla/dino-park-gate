@@ -5,13 +5,13 @@ use actix_service::Service;
 use actix_service::Transform;
 use actix_web::dev::ServiceRequest;
 use actix_web::dev::ServiceResponse;
+use actix_web::error::ErrorForbidden;
 use actix_web::Error;
 use biscuit::ValidationOptions;
 use futures::future;
 use futures::future::Ready;
 use futures::task::Context;
 use futures::task::Poll;
-use futures::TryFutureExt;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -80,7 +80,7 @@ where
                 let validation_options = self.validation_options.clone();
                 let fut = self.checker.verify_and_decode(token.to_owned());
                 return Box::pin(async move {
-                    let claim_set = fut.map_err(Error::from).await?;
+                    let claim_set = fut.await.map_err(ErrorForbidden)?;
                     match T::check(&claim_set, validation_options) {
                         Ok(_) => {
                             let fut = { svc.borrow_mut().call(req) };

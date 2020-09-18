@@ -240,27 +240,28 @@ fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> GroupsTrust {
 
 #[cfg(feature = "localuserscope")]
 fn local_user_scope() -> Result<ScopeAndUser, Error> {
-    use failure::format_err;
+    use actix_web::error::ErrorForbidden;
     use log::info;
     use std::convert::TryFrom;
     use std::env::var;
 
     let dpg_userscope = "DPG_USERSCOPE";
     let user_scope =
-        var(dpg_userscope).map_err(|_| format_err!("{} not defined", dpg_userscope))?;
+        var(dpg_userscope).map_err(|_| ErrorForbidden(format!("{} not defined", dpg_userscope)))?;
     info!("using {}: {}", dpg_userscope, user_scope);
     let mut tuple = user_scope.split(',');
     let user_id = tuple
         .next()
-        .ok_or_else(|| format_err!("{}: no user_id", dpg_userscope))?
+        .ok_or_else(|| ErrorForbidden(format!("{}: no user_id", dpg_userscope)))?
         .to_owned();
     let scope = tuple
         .next()
-        .ok_or_else(|| format_err!("{}: no scope", dpg_userscope))?;
-    let scope = Trust::try_from(scope).map_err(|e| format_err!("{}: invalid scope", e))?;
+        .ok_or_else(|| ErrorForbidden(format!("{}: no scope", dpg_userscope)))?;
+    let scope =
+        Trust::try_from(scope).map_err(|e| ErrorForbidden(format!("{}: invalid scope", e)))?;
     let groups_scope = tuple.next().unwrap_or_default();
     let groups_scope = GroupsTrust::try_from(groups_scope)
-        .map_err(|e| format_err!("{}: invalid groups scope", e))?;
+        .map_err(|e| ErrorForbidden(format!("{}: invalid groups scope", e)))?;
     let aa_level = match tuple.next() {
         Some(s) => AALevel::from(s),
         _ => AALevel::Unknown,
