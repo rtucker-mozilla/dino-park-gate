@@ -1,10 +1,8 @@
 use crate::error::ServiceError;
-use crate::BoxFut;
 use actix_service::Service;
 use actix_service::Transform;
 use actix_web::dev::Payload;
-use actix_web::dev::ServiceRequest;
-use actix_web::dev::ServiceResponse;
+use actix_web::dev::*;
 use actix_web::Error;
 use actix_web::FromRequest;
 use actix_web::HttpMessage;
@@ -15,12 +13,15 @@ use dino_park_trust::GroupsTrust;
 use dino_park_trust::Trust;
 use futures::future;
 use futures::future::ok;
+use futures::future::LocalBoxFuture;
 use futures::future::Ready;
 use futures::task::Context;
 use futures::task::Poll;
-use futures::TryFutureExt;
 use std::cell::RefCell;
 use std::sync::Arc;
+
+#[cfg(feature = "localuserscope")]
+use futures::TryFutureExt;
 
 #[derive(Clone)]
 pub struct ScopeAndUser {
@@ -68,14 +69,13 @@ pub struct ScopeAndUserAuthMiddleware<S> {
     pub public: bool,
 }
 
-impl<S, B: 'static> Transform<S> for ScopeAndUserAuth
+impl<S> Transform<S, ServiceRequest> for ScopeAndUserAuth
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = Error> + 'static,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Response = S::Response;
+    type Error = S::Error;
     type InitError = ();
     type Transform = ScopeAndUserAuthMiddleware<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
@@ -89,19 +89,17 @@ where
     }
 }
 
-impl<S, B> Service for ScopeAndUserAuthMiddleware<S>
+impl<S> Service<ServiceRequest> for ScopeAndUserAuthMiddleware<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = BoxFut<Self::Response, Self::Error>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        (*self.service).borrow_mut().poll_ready(cx)
+        (*self).service.borrow_mut().poll_ready(cx)
     }
 
     #[cfg(feature = "localuserscope")]
@@ -116,7 +114,6 @@ where
     #[cfg(not(feature = "localuserscope"))]
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         use crate::check::TokenChecker;
-        use biscuit::StringOrUri;
         use biscuit::ValidationOptions;
 
         let svc = self.service.clone();
@@ -149,18 +146,14 @@ where
 
         let fut = <Provider as TokenChecker>::verify_and_decode(&self.checker, auth_token);
         Box::pin(async move {
-            let mut claims_set = fut
-                .map_err(|_| Error::from(ServiceError::Unauthorized))
-                .await?;
+            let mut claims_set = fut.await?;
 
             if Provider::check(&claims_set, ValidationOptions::default()).is_err() {
                 return Err(ServiceError::Unauthorized.into());
             }
 
             match claims_set.registered.subject {
-                Some(StringOrUri::String(ref sub)) if sub != &user_id => {
-                    return Err(ServiceError::Unauthorized.into())
-                }
+                Some(ref sub) if sub != &user_id => return Err(ServiceError::Unauthorized.into()),
                 _ => {}
             }
 
@@ -192,7 +185,7 @@ where
 impl FromRequest for ScopeAndUser {
     type Config = ();
     type Error = Error;
-    type Future = BoxFut<Self, Self::Error>;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
 
     #[inline]
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
@@ -240,28 +233,20 @@ fn groups_scope_from_claimset(claims_set: &Option<Vec<String>>) -> GroupsTrust {
 
 #[cfg(feature = "localuserscope")]
 fn local_user_scope() -> Result<ScopeAndUser, Error> {
-    use actix_web::error::ErrorForbidden;
     use log::info;
     use std::convert::TryFrom;
     use std::env::var;
 
     let dpg_userscope = "DPG_USERSCOPE";
-    let user_scope =
-        var(dpg_userscope).map_err(|_| ErrorForbidden(format!("{} not defined", dpg_userscope)))?;
+    let user_scope = var(dpg_userscope).map_err(|_| ServiceError::Unauthorized)?;
     info!("using {}: {}", dpg_userscope, user_scope);
     let mut tuple = user_scope.split(',');
-    let user_id = tuple
-        .next()
-        .ok_or_else(|| ErrorForbidden(format!("{}: no user_id", dpg_userscope)))?
-        .to_owned();
-    let scope = tuple
-        .next()
-        .ok_or_else(|| ErrorForbidden(format!("{}: no scope", dpg_userscope)))?;
-    let scope =
-        Trust::try_from(scope).map_err(|e| ErrorForbidden(format!("{}: invalid scope", e)))?;
+    let user_id = tuple.next().ok_or(ServiceError::Unauthorized)?.to_owned();
+    let scope = tuple.next().ok_or(ServiceError::Unauthorized)?;
+    let scope = Trust::try_from(scope).map_err(|_| ServiceError::Unauthorized)?;
     let groups_scope = tuple.next().unwrap_or_default();
-    let groups_scope = GroupsTrust::try_from(groups_scope)
-        .map_err(|e| ErrorForbidden(format!("{}: invalid groups scope", e)))?;
+    let groups_scope =
+        GroupsTrust::try_from(groups_scope).map_err(|_| ServiceError::Unauthorized)?;
     let aa_level = match tuple.next() {
         Some(s) => AALevel::from(s),
         _ => AALevel::Unknown,

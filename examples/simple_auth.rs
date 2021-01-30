@@ -4,7 +4,6 @@ extern crate log;
 use actix_web::{web, App, HttpRequest, HttpServer, Responder};
 use biscuit::ClaimPresenceOptions;
 use biscuit::Presence;
-use biscuit::StringOrUri;
 use biscuit::Validation;
 use biscuit::ValidationOptions;
 use dino_park_gate::simple::SimpleAuth;
@@ -30,7 +29,7 @@ async fn main() -> std::io::Result<()> {
                     audience: Presence::Required,
                     ..Default::default()
                 },
-                audience: Validation::Validate(StringOrUri::String("foo".into())),
+                audience: Validation::Validate("foo".into()),
                 ..Default::default()
             },
         };

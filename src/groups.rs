@@ -1,11 +1,8 @@
 use crate::error::ServiceError;
-use crate::BoxFut;
 use actix_service::Service;
 use actix_service::Transform;
 use actix_web::dev::Payload;
-use actix_web::dev::ServiceRequest;
-use actix_web::dev::ServiceResponse;
-use actix_web::Error;
+use actix_web::dev::*;
 use actix_web::FromRequest;
 use actix_web::HttpMessage;
 use actix_web::HttpRequest;
@@ -13,6 +10,7 @@ use dino_park_oidc::provider::Provider;
 use dino_park_trust::AALevel;
 use futures::future;
 use futures::future::ok;
+use futures::future::LocalBoxFuture;
 use futures::future::Ready;
 use futures::task::Context;
 use futures::task::Poll;
@@ -54,14 +52,13 @@ pub struct GroupsFromTokenMiddleware<S> {
     pub checker: Arc<Provider>,
 }
 
-impl<S, B: 'static> Transform<S> for GroupsFromToken
+impl<S> Transform<S, ServiceRequest> for GroupsFromToken
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = ServiceError> + 'static,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Response = S::Response;
+    type Error = S::Error;
     type InitError = ();
     type Transform = GroupsFromTokenMiddleware<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
@@ -74,24 +71,21 @@ where
     }
 }
 
-impl<S, B> Service for GroupsFromTokenMiddleware<S>
+impl<S> Service<ServiceRequest> for GroupsFromTokenMiddleware<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = ServiceError> + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = BoxFut<Self::Response, Self::Error>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        (*self.service).borrow_mut().poll_ready(cx)
+        (*self).service.borrow_mut().poll_ready(cx)
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         use crate::check::TokenChecker;
-        use biscuit::StringOrUri;
         use biscuit::ValidationOptions;
 
         let svc = self.service.clone();
@@ -101,7 +95,7 @@ where
             .and_then(|value| value.to_str().ok())
         {
             Some(auth_token) => auth_token.to_owned(),
-            None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
+            None => return Box::pin(future::err(ServiceError::Unauthorized)),
         };
         let user_id = match req
             .headers()
@@ -111,23 +105,19 @@ where
             .map(|id| id.to_owned())
         {
             Some(user_id) => user_id,
-            None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
+            None => return Box::pin(future::err(ServiceError::Unauthorized)),
         };
 
         let fut = <Provider as TokenChecker>::verify_and_decode(&self.checker, auth_token);
         Box::pin(async move {
-            let mut claims_set = fut
-                .map_err(|_| Error::from(ServiceError::Unauthorized))
-                .await?;
+            let mut claims_set = fut.map_err(|_| ServiceError::Unauthorized).await?;
 
             if Provider::check(&claims_set, ValidationOptions::default()).is_err() {
-                return Err(ServiceError::Unauthorized.into());
+                return Err(ServiceError::Unauthorized);
             }
 
             match claims_set.registered.subject {
-                Some(StringOrUri::String(ref sub)) if sub != &user_id => {
-                    return Err(ServiceError::Unauthorized.into())
-                }
+                Some(ref sub) if sub != &user_id => return Err(ServiceError::Unauthorized),
                 _ => {}
             }
 
@@ -138,7 +128,7 @@ where
             let aa_level = serde_json::from_value::<AALevel>(
                 claims_set.private["https://sso.mozilla.com/claim/AAL"].take(),
             )
-            .unwrap_or_else(|_| AALevel::Unknown);
+            .unwrap_or(AALevel::Unknown);
             let groups = Groups {
                 user_id,
                 groups,
@@ -153,15 +143,16 @@ where
 
 impl FromRequest for Groups {
     type Config = ();
-    type Error = Error;
-    type Future = BoxFut<Self, Self::Error>;
+    type Error = ServiceError;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
 
     #[inline]
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
         if let Some(groups) = req.extensions().get::<Groups>() {
-            Box::pin(future::ok(groups.clone()))
+            let groups = groups.to_owned();
+            Box::pin(async move { Ok(groups) })
         } else {
-            Box::pin(future::err(ServiceError::Unauthorized.into()))
+            Box::pin(async move { Err(ServiceError::Unauthorized) })
         }
     }
 }

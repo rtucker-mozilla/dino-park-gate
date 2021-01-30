@@ -1,9 +1,9 @@
 use biscuit::ClaimPresenceOptions;
 use biscuit::Presence;
-use biscuit::StringOrUri;
 use biscuit::Validation;
 use biscuit::ValidationOptions;
 use chrono::Duration;
+use serde_derive::Deserialize;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AuthValidationSettings {
@@ -37,12 +37,12 @@ impl AuthValidationSettings {
             audience: self
                 .audience
                 .as_ref()
-                .map(|s| Validation::Validate(StringOrUri::String(s.clone())))
+                .map(|s| Validation::Validate(s.clone()))
                 .unwrap_or_default(),
             issuer: self
                 .issuer
                 .as_ref()
-                .map(|s| Validation::Validate(StringOrUri::String(s.clone())))
+                .map(|s| Validation::Validate(s.clone()))
                 .unwrap_or_default(),
             issued_at: self
                 .issued_at

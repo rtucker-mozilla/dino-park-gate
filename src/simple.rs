@@ -1,14 +1,12 @@
 use crate::check::TokenChecker;
 use crate::error::ServiceError;
-use crate::BoxFut;
 use actix_service::Service;
 use actix_service::Transform;
-use actix_web::dev::ServiceRequest;
-use actix_web::dev::ServiceResponse;
-use actix_web::error::ErrorForbidden;
+use actix_web::dev::*;
 use actix_web::Error;
 use biscuit::ValidationOptions;
 use futures::future;
+use futures::future::LocalBoxFuture;
 use futures::future::Ready;
 use futures::task::Context;
 use futures::task::Poll;
@@ -27,14 +25,13 @@ pub struct SimpleAuthMiddleware<S, T: TokenChecker + 'static> {
     pub validation_options: ValidationOptions,
 }
 
-impl<S, B: 'static, T: TokenChecker + Clone + 'static> Transform<S> for SimpleAuth<T>
+impl<S, T: TokenChecker + Clone + 'static> Transform<S, ServiceRequest> for SimpleAuth<T>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = Error> + 'static,
     S::Future: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Response = S::Response;
+    type Error = S::Error;
     type InitError = ();
     type Transform = SimpleAuthMiddleware<S, T>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
@@ -48,19 +45,17 @@ where
     }
 }
 
-impl<S, B, T: TokenChecker + 'static> Service for SimpleAuthMiddleware<S, T>
+impl<S, T: TokenChecker + 'static> Service<ServiceRequest> for SimpleAuthMiddleware<S, T>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = BoxFut<Self::Response, Self::Error>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        (*self.service).borrow_mut().poll_ready(cx)
+        (*self).service.borrow_mut().poll_ready(cx)
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
@@ -71,7 +66,7 @@ where
 
         let auth_header = match req.headers().get("AUTHORIZATION") {
             Some(value) => value.to_str().ok(),
-            None => return Box::pin(future::err(ServiceError::Unauthorized.into())),
+            None => return Box::pin(async move { Err(ServiceError::Unauthorized.into()) }),
         };
 
         if let Some(auth_header) = auth_header {
@@ -80,7 +75,7 @@ where
                 let validation_options = self.validation_options.clone();
                 let fut = self.checker.verify_and_decode(token.to_owned());
                 return Box::pin(async move {
-                    let claim_set = fut.await.map_err(ErrorForbidden)?;
+                    let claim_set = fut.await.map_err(|_| ServiceError::Forbidden)?;
                     match T::check(&claim_set, validation_options) {
                         Ok(_) => {
                             let fut = { svc.borrow_mut().call(req) };
@@ -91,7 +86,7 @@ where
                 });
             }
         }
-        Box::pin(future::err(ServiceError::Unauthorized.into()))
+        Box::pin(async move { Err(ServiceError::Unauthorized.into()) })
     }
 }
 
@@ -104,11 +99,11 @@ fn get_token(auth_header: &str) -> Option<&str> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::error::ServiceError;
     use actix_service::IntoService;
     use actix_web::test::TestRequest;
     use actix_web::HttpResponse;
     use biscuit::ClaimsSet;
-    use failure::Error;
     use futures::future::ok;
     use futures::future::BoxFuture;
     use serde_json::Value;
@@ -121,7 +116,7 @@ mod test {
 
     impl TokenChecker for FakeChecker {
         type Item = biscuit::ClaimsSet<Value>;
-        type Future = BoxFuture<'static, Result<Self::Item, Error>>;
+        type Future = BoxFuture<'static, Result<Self::Item, ServiceError>>;
         fn verify_and_decode(&self, token: String) -> Self::Future {
             if let Some(cs) = &self.claim_set {
                 if self
@@ -135,7 +130,10 @@ mod test {
             };
             Box::pin(future::err(ServiceError::Unauthorized.into()))
         }
-        fn check(item: &Self::Item, validation_options: ValidationOptions) -> Result<(), Error> {
+        fn check(
+            item: &Self::Item,
+            validation_options: ValidationOptions,
+        ) -> Result<(), ServiceError> {
             item.registered
                 .validate(validation_options)
                 .map_err(Into::into)
