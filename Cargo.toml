@@ -1,6 +1,6 @@
 [package]
 name = "dino_park_gate"
-version = "0.9.0"
+version = "0.10.0"
 authors = ["Florian Merz <me@fiji-flo.de>"]
 edition = "2018"
 license = "MIT"
@@ -22,8 +22,8 @@ shared-expiry-get = "0.2"
 thiserror = "1"
 biscuit = "0.5"
 url = "2"
-actix-web = "4.0.0-beta.1"
-actix-service = "2.0.0-beta.3"
+actix-web = "4.0.0-beta.3"
+actix-service = "2.0.0-beta.4"
 env_logger = "0.8"
 serde = "1"
 serde_json = "1"
@@ -36,4 +36,4 @@ log = "0.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-actix-rt = "2.0.0-beta.2"
+actix-rt = "2"

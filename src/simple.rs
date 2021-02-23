@@ -8,8 +8,6 @@ use biscuit::ValidationOptions;
 use futures::future;
 use futures::future::LocalBoxFuture;
 use futures::future::Ready;
-use futures::task::Context;
-use futures::task::Poll;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -54,11 +52,9 @@ where
     type Error = S::Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&mut self, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
-        (*self).service.borrow_mut().poll_ready(cx)
-    }
+    actix_service::forward_ready!(service);
 
-    fn call(&mut self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         if req.method() == "OPTIONS" {
             let fut = { self.service.borrow_mut().call(req) };
             return Box::pin(fut);
@@ -153,11 +149,13 @@ mod test {
             checker: FakeChecker::default(),
             validation_options: ValidationOptions::default(),
         };
-        let mut srv = auth_middleware
+        let srv = auth_middleware
             .new_transform(srv.into_service())
             .await
             .unwrap();
-        let req = TestRequest::with_header("SOMETHING", "ELSE").to_srv_request();
+        let req = TestRequest::default()
+            .insert_header(("SOMETHING", "ELSE"))
+            .to_srv_request();
         let res = srv.call(req).await;
         assert!(res.is_err());
     }
@@ -175,11 +173,13 @@ mod test {
             },
             validation_options: ValidationOptions::default(),
         };
-        let mut srv = auth_middleware
+        let srv = auth_middleware
             .new_transform(srv.into_service())
             .await
             .unwrap();
-        let req = TestRequest::with_header("AUTHORIZATION", "not bearer").to_srv_request();
+        let req = TestRequest::default()
+            .insert_header(("AUTHORIZATION", "not bearer"))
+            .to_srv_request();
         let res = srv.call(req).await;
         assert!(res.is_err());
     }
@@ -197,11 +197,13 @@ mod test {
             },
             validation_options: ValidationOptions::default(),
         };
-        let mut srv = auth_middleware
+        let srv = auth_middleware
             .new_transform(srv.into_service())
             .await
             .unwrap();
-        let req = TestRequest::with_header("AUTHORIZATION", "Bearer somethingfun").to_srv_request();
+        let req = TestRequest::default()
+            .insert_header(("AUTHORIZATION", "Bearer somethingfun"))
+            .to_srv_request();
         let res = srv.call(req).await;
         assert!(res.is_ok());
     }
