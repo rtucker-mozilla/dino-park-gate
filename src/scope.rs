@@ -218,7 +218,7 @@ fn scope_from_claimset(claims_set: &Option<Vec<String>>) -> Option<Trust> {
             || groups.contains(&String::from("ghe_group_curators"))
         /*
             The NDA'd groups are defined in 3 places and have
-            been referred to int he following pull requests to be
+            been referred to in  the following pull requests to be
             used below as reference.
             https://github.com/mozilla-iam/dino-park-packs/pull/20
             https://github.com/mozilla-iam/dino-park-front-end/pull/662
